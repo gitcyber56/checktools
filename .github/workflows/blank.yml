@@ -52,4 +52,4 @@ jobs:
             The Homelab WAN connection has not checked in for over an hour.
             Last check-in: ${{ steps.check.outputs.last_checkin }}
           to: ${{ secrets.MAIL_RECIPIENTS }}
-          from: GitHub Actions <actions@github.com>
+          from: ${{ secrets.MAIL_USERNAME }}
