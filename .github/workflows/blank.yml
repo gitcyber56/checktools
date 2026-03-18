@@ -1,0 +1,55 @@
+name: WAN Connectivity Monitor
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # Run every 30 minutes
+  workflow_dispatch: # Allow manual runs
+
+jobs:
+  check-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Gist Timestamp
+        id: check
+        run: |
+          # 1. Get Gist Content
+          GIST_ID=${{ secrets.GIST_ID }}
+          FILENAME="last_write.json"
+          
+          # Fetch raw content
+          RESPONSE=$(curl -s https://api.github.com/gists/$GIST_ID)
+          CONTENT=$(echo $RESPONSE | jq -r ".files[\"$FILENAME\"].content")
+          
+          # Parse Date
+          LAST_UPDATE_TS=$(date -d "$CONTENT" +%s)
+          CURRENT_TS=$(date +%s)
+          DIFF=$((CURRENT_TS - LAST_UPDATE_TS))
+          
+          echo "Last Update: $CONTENT ($LAST_UPDATE_TS)"
+          echo "Current: $(date) ($CURRENT_TS)"
+          echo "Diff: $DIFF seconds"
+          
+          # Threshold: 1 hour (3600 seconds)
+          if [ $DIFF -gt 3600 ]; then
+            echo "status=down" >> $GITHUB_OUTPUT
+            echo "last_checkin=$CONTENT" >> $GITHUB_OUTPUT
+            echo "WAN appears to be DOWN. Last update was $DIFF seconds ago."
+          else
+            echo "status=up" >> $GITHUB_OUTPUT
+            echo "WAN is UP."
+          fi
+
+      - name: Send Email Alert
+        if: steps.check.outputs.status == 'down'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com # or your SMTP server
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: 🚨 ALERT: Homelab WAN Connection Down
+          body: |
+            The Homelab WAN connection has not checked in for over an hour.
+            Last check-in: ${{ steps.check.outputs.last_checkin }}
+          to: ${{ secrets.MAIL_RECIPIENTS }}
+          from: GitHub Actions <actions@github.com>
