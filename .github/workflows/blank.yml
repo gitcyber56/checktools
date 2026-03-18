@@ -43,8 +43,8 @@ jobs:
         if: steps.check.outputs.status == 'down'
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com # or your SMTP server
-          server_port: 465
+          server_address: ${{ secrets.MAIL_SMTP }} # or your SMTP server
+          server_port: 587
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "ALERT: Homelab WAN Connection Down"
