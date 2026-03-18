@@ -15,17 +15,31 @@ jobs:
           # 1. Get Gist Content
           GIST_ID=${{ secrets.GIST_ID }}
           FILENAME="last_write.json"
+          ALERT_FILENAME="last_alert.json"
           
           # Fetch raw content
           RESPONSE=$(curl -s https://api.github.com/gists/$GIST_ID)
           CONTENT=$(echo $RESPONSE | jq -r ".files[\"$FILENAME\"].content")
+          LAST_ALERT=$(echo $RESPONSE | jq -r ".files[\"$ALERT_FILENAME\"].content")
           
-          # Parse Date
+          if [ "$CONTENT" == "null" ] || [ -z "$CONTENT" ]; then
+            echo "Error: $FILENAME not found in Gist"
+            exit 1
+          fi
+
+          # Parse Dates
           LAST_UPDATE_TS=$(date -d "$CONTENT" +%s)
           CURRENT_TS=$(date +%s)
           DIFF=$((CURRENT_TS - LAST_UPDATE_TS))
           
+          if [ "$LAST_ALERT" != "null" ] && [ -n "$LAST_ALERT" ]; then
+            LAST_ALERT_TS=$(date -d "$LAST_ALERT" +%s 2>/dev/null || echo 0)
+          else
+            LAST_ALERT_TS=0
+          fi
+          
           echo "Last Update: $CONTENT ($LAST_UPDATE_TS)"
+          echo "Last Alert: $LAST_ALERT ($LAST_ALERT_TS)"
           echo "Current: $(date) ($CURRENT_TS)"
           echo "Diff: $DIFF seconds"
           
@@ -33,14 +47,23 @@ jobs:
           if [ $DIFF -gt 3600 ]; then
             echo "status=down" >> $GITHUB_OUTPUT
             echo "last_checkin=$CONTENT" >> $GITHUB_OUTPUT
-            echo "WAN appears to be DOWN. Last update was $DIFF seconds ago."
+            
+            # Check if we should alert (if last_alert < last_update, we haven't alerted for this incident)
+            if [ $LAST_ALERT_TS -lt $LAST_UPDATE_TS ]; then
+              echo "should_alert=true" >> $GITHUB_OUTPUT
+              echo "WAN appears to be DOWN. Sending alert."
+            else
+              echo "should_alert=false" >> $GITHUB_OUTPUT
+              echo "WAN is DOWN, but an alert was already sent for this incident."
+            fi
           else
             echo "status=up" >> $GITHUB_OUTPUT
+            echo "should_alert=false" >> $GITHUB_OUTPUT
             echo "WAN is UP."
           fi
 
       - name: Send Email Alert
-        if: steps.check.outputs.status == 'down'
+        if: steps.check.outputs.should_alert == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.MAIL_SMTP }} # or your SMTP server
@@ -53,3 +76,15 @@ jobs:
             Last check-in: ${{ steps.check.outputs.last_checkin }}
           to: ${{ secrets.MAIL_RECIPIENTS }}
           from: ${{ secrets.MAIL_USERNAME }}
+
+      - name: Update Gist Alert Timestamp
+        if: steps.check.outputs.should_alert == 'true'
+        run: |
+          GIST_ID=${{ secrets.GIST_ID }}
+          # Note: Requires a secret GIST_TOKEN with 'gist' scope
+          TOKEN=${{ secrets.GIST_TOKEN }}
+          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
+          curl -s -X PATCH -H "Authorization: token $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"files\": {\"last_alert.json\": {\"content\": \"$CURRENT_TIME\"}}}" \
+          "https://api.github.com/gists/$GIST_ID"
