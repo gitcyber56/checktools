@@ -47,7 +47,7 @@ jobs:
           server_port: 465
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: 🚨 ALERT: Homelab WAN Connection Down
+          subject: ALERT: Homelab WAN Connection Down
           body: |
             The Homelab WAN connection has not checked in for over an hour.
             Last check-in: ${{ steps.check.outputs.last_checkin }}
